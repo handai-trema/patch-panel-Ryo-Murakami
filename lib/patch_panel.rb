@@ -15,7 +15,7 @@ class PatchPanel < Trema::Controller
 
   def create_patch(dpid, port_a, port_b)
     add_flow_entries dpid, port_a, port_b
-    @patch[dpid] += [[port_a, port_b].sort]
+    @patch[dpid] += [[port_a, port_b].sor]
   end
 
   def delete_patch(dpid, port_a, port_b)
@@ -80,5 +80,30 @@ class PatchPanel < Trema::Controller
 			end
 		end
 	end
+
+	def dump(dpid)
+    str = "Patches:\n"
+    for patch in @patches[dpid].each do
+      port_in = patch[0]
+      port_out = patch[1]
+      str += "\t"
+      str += port_in.to_s
+      str += "<->"
+      str += port_out.to_s
+      str += "\n"
+    end
+    
+		str += "Mirrors:\n"
+    for mirror in @mirrors[dpid].each do
+      port_monitor = mirror[0]
+      port_mirror = mirror[1]
+      str += "\t"
+      str += port_monitor.to_s
+      str += "->"
+      str += port_mirror.to_s
+      str += "\n"
+    end
+    str
+  end
 
 end
