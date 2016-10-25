@@ -83,9 +83,9 @@ class PatchPanel < Trema::Controller
 
 	def dump(dpid)
     str = "Patches:\n"
-    for patch in @patches[dpid].each do
-      port_in = patch[0]
-      port_out = patch[1]
+    for patch_tmp in @patch[dpid].each do
+      port_in = patch_tmp[0]
+      port_out = patch_tmp[1]
       str += "\t"
       str += port_in.to_s
       str += "<->"
@@ -94,9 +94,9 @@ class PatchPanel < Trema::Controller
     end
     
 		str += "Mirrors:\n"
-    for mirror in @mirrors[dpid].each do
-      port_monitor = mirror[0]
-      port_mirror = mirror[1]
+    for mirror_tmp in @mirror[dpid].each do
+      port_monitor = mirror_tmp[0]
+      port_mirror = mirror_tmp[1]
       str += "\t"
       str += port_monitor.to_s
       str += "->"
