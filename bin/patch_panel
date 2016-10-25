@@ -41,6 +41,8 @@ module PatchPanelApp
     end
   end
 
+<<<<<<< HEAD
+=======
   desc 'Create a mirror'
   arg_name 'dpid port mirror'
   command :m_create do |c|
@@ -94,5 +96,6 @@ module PatchPanelApp
     end
   end
 
+>>>>>>> develop
   exit run(ARGV)
 end
