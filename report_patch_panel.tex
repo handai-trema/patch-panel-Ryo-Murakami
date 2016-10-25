@@ -1,0 +1,192 @@
+﻿\documentclass[10pt,a4paper,onecolumn]{jarticle}
+\usepackage[dvips]{graphicx}
+\usepackage{subfigure}
+\usepackage{amsmath}
+%\usepackage{listings}
+%\usepackage{jlisting}
+\usepackage{ascmac}
+\usepackage{here}
+\usepackage{txfonts}
+\usepackage{listings,jlisting}
+\renewcommand{\lstlistingname}{リスト}
+\lstset{language=c,
+  basicstyle=\ttfamily\scriptsize,
+  commentstyle=\textit,
+  classoffset=1,
+  keywordstyle=\bfseries,
+  frame=tRBl,
+  framesep=5pt,
+  showstringspaces=false,
+  numbers=left,
+  stepnumber=1,
+  numberstyle=\tiny,
+  tabsize=2
+}
+\usepackage[top=25truemm,bottom=25truemm,left=25truemm,right=25truemm]{geometry}
+\title{情報ネットワーク学演習 2\\ 課題: パッチパネルの拡張}
+\author{33E16022 村上 遼}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\section{課題内容}
+
+パッチパネルに機能を追加する．
+授業で説明のあったパッチの追加と削除以外に，以下の機能を追加する．
+
+\begin{enumerate}
+	\item ポートのミラーリング
+	\item パッチとポートミラーリングの一覧
+\end{enumerate}
+
+
+\section{課題に対する回答}
+
+
+\subsection{ミラーリングの追加}
+
+辻健太さんの回答を元にソースコードの変更を考案した．
+ミラーリングの作成のために，create\_mirror メッソドと add\_mirror\_entries メソッドを追加した．
+リスト \ref{lst:mirror-add} に create\_mirror メッソドと add\_mirror\_entries メソッドを示す．
+
+\begin{lstlisting}[caption = ミラーリング作成用のメソッド, label = lst:mirror-add]
+  def create_mirror(dpid, port_monitor, port_mirror)
+		add_mirror_entries dpid, port_monitor, port_mirror
+		@mirror[dpid] += [[port_monitor, port_mirror]]
+  end
+
+　def add_mirror_entries(dpid, port_monitor, port_mirror)
+		send_flow_mod_delete(dpid, match: Match.new(in_port: port_mirror))
+		for patch_tmp in @patch[dpid].each do
+			port_in = patch_tmp[0]
+			port_out = patch_tmp[1]
+			if port_in == port_monitor then
+				send_flow_mod_delete(dpid, match: Match.new(in_port: port_in))
+				send_flow_mod_add(dpid, 
+								match: Match.new(in_port: port_monitor),
+								actions: [
+								SendOutPort.new(port_out),
+								SendOutPort.new(port_mirror)
+								])
+			end		
+		end
+　end
+\end{lstlisting}
+
+create\_mirror メソッドでは，入力された情報を元に変数 @mirror にミラーリングの情報を追加している．
+モニタ用のポートとミラーリング用のポートを区別するために，変数 @mirror に追加するときにソートを行っていない．
+
+add\_mirror\_entries では，一度スイッチ側の FlowTable 規則を削除してから，ミラーリング生成に必要な FlowTable の情報追加を行っている．
+
+\subsection{ミラーリングの削除}
+
+ミラーリングの削除のために，delete\_mirror メッソドと delete\_mirror\_entries メソッドを追加した．
+リスト \ref{lst:mirror-add} に create\_mirror メッソドと delete\_mirror\_entries メソッドを示す．
+
+\begin{lstlisting}[caption = ミラーリング削除用のメソッド, label = lst:mirror-delete]
+def delete_mirror(dpid, port_monitor, port_mirror)
+	if @mirror[dpid].include?([port_monitor, port_mirror]) then
+		delete_mirror_entry dpid, port_monitor, port_mirror
+		@mirror[dpid] -= [[port_monitor, port_mirror]]
+	end
+end
+
+def delete_mirror_entry(dpid, port_monitor, port_mirror)
+	send_flow_mod_delete(dpid, match: Match.new(in_port: port_monitor))
+	for patch_tmp in @patch[dpid].each do
+		port_in = patch_tmp[0]
+		port_out = patch_tmp[1]
+		if port_in == port_monitor then
+			send_flow_mod_add(dpid,
+							match: Match.new(in_port: port_in),
+							actions: SendOutPort.new(port_out))
+		end
+	end
+end
+\end{lstlisting}
+
+delete\_mirror メソッドでは，変数 @mirror にミラーリングが登録されていた場合，変数 @mirror からミラーリングの情報を削除している．
+
+delete\_mirror\_entry メソッドでは，一度スイッチ側の FlowTable を削除してから，ミラーリング削除後に必要な FlowTable の情報を追加している．
+
+\subsection{出力}
+
+情報の出力のために，dump メソッドを追加した．
+リスト \ref{lst:dmp} に dump メソッドを示す．
+
+\begin{lstlisting}[caption = dump, label = lst:dmp]
+def dump(dpid)
+    	str = "Patches:\n"
+    	for patch_tmp in @patch[dpid].each do
+      		port_in = patch_tmp[0]
+      		port_out = patch_tmp[1]
+      		str += "\t"
+      		str += port_in.to_s
+      		str += "<->"
+      		str += port_out.to_s
+      		str += "\n"
+    	end
+    
+	str += "Mirrors:\n"
+    	for mirror_tmp in @mirror[dpid].each do
+      		port_monitor = mirror_tmp[0]
+      		port_mirror = mirror_tmp[1]
+      		str += "\t"
+      		str += port_monitor.to_s
+      		str += "->"
+      		str += port_mirror.to_s
+      		str += "\n"
+    	end
+	str
+end
+\end{lstlisting}
+
+dump メソッドでは，ミラーリングの情報だけでなく，接続情報も出力している．
+変数 str に情報を格納して，\ref{lst:dmp} の 28 行目で出力している．
+
+\section{動作確認}
+
+動作確認のため，trema run ./lib/patch\_panel.rb -c patch\_panel.conf を実行した．
+しかしながら，エラーが発生して実効することができなかった．
+リスト \ref{lst:result} にエラーメッセージを示す．
+
+\begin{lstlisting}[caption = 動作結果, label = lst:result]
+ensyuu2@ensyuu2-VirtualBox:~/week3/patch-panel-Ryo-Murakami$ trema run ./lib/patch_panel.rb 
+	-c patch_panel.conf
+/home/ensyuu2/.rvm/rubies/ruby-2.2.5/lib/ruby/2.2.0/drb/unix.rb:41:in `initialize': Address already 
+	in use - connect(2) for /tmp/trema.PatchPanel.ctl (Errno::EADDRINUSE)
+	from /home/ensyuu2/.rvm/rubies/ruby-2.2.5/lib/ruby/2.2.0/drb/unix.rb:41:in `open'
+	from /home/ensyuu2/.rvm/rubies/ruby-2.2.5/lib/ruby/2.2.0/drb/unix.rb:41:in `open_server'
+	from /home/ensyuu2/.rvm/rubies/ruby-2.2.5/lib/ruby/2.2.0/drb/drb.rb:767:in `block in open_server'
+	from /home/ensyuu2/.rvm/rubies/ruby-2.2.5/lib/ruby/2.2.0/drb/drb.rb:765:in `each'
+	from /home/ensyuu2/.rvm/rubies/ruby-2.2.5/lib/ruby/2.2.0/drb/drb.rb:765:in `open_server'
+	from /home/ensyuu2/.rvm/rubies/ruby-2.2.5/lib/ruby/2.2.0/drb/drb.rb:773:in `open_server'
+	from /home/ensyuu2/.rvm/rubies/ruby-2.2.5/lib/ruby/2.2.0/drb/drb.rb:1405:in `initialize'
+	from /home/ensyuu2/.rvm/rubies/ruby-2.2.5/lib/ruby/2.2.0/drb/drb.rb:1695:in `new'
+	from /home/ensyuu2/.rvm/rubies/ruby-2.2.5/lib/ruby/2.2.0/drb/drb.rb:1695:in `start_service'
+	from /home/ensyuu2/.rvm/gems/ruby-2.2.5/gems/trema-0.9.0/lib/trema/command.rb:124:
+		in `start_controller_and_drb_threads'
+	from /home/ensyuu2/.rvm/gems/ruby-2.2.5/gems/trema-0.9.0/lib/trema/command.rb:51:in `run'
+	from /home/ensyuu2/.rvm/gems/ruby-2.2.5/gems/trema-0.9.0/bin/trema:54:in `block (2 levels) in <module:App>'
+	from /home/ensyuu2/.rvm/gems/ruby-2.2.5/gems/gli-2.13.4/lib/gli/command_support.rb:126:in `call'
+	from /home/ensyuu2/.rvm/gems/ruby-2.2.5/gems/gli-2.13.4/lib/gli/command_support.rb:126:in `execute'
+	from /home/ensyuu2/.rvm/gems/ruby-2.2.5/gems/gli-2.13.4/lib/gli/app_support.rb:296:in `block in call_command'
+	from /home/ensyuu2/.rvm/gems/ruby-2.2.5/gems/gli-2.13.4/lib/gli/app_support.rb:309:in `call'
+	from /home/ensyuu2/.rvm/gems/ruby-2.2.5/gems/gli-2.13.4/lib/gli/app_support.rb:309:
+		in `call_command'
+	from /home/ensyuu2/.rvm/gems/ruby-2.2.5/gems/gli-2.13.4/lib/gli/app_support.rb:83:in `run'
+	from /home/ensyuu2/.rvm/gems/ruby-2.2.5/gems/trema-0.9.0/bin/trema:268:in `<module:App>'
+	from /home/ensyuu2/.rvm/gems/ruby-2.2.5/gems/trema-0.9.0/bin/trema:14:in `<module:Trema>'
+	from /home/ensyuu2/.rvm/gems/ruby-2.2.5/gems/trema-0.9.0/bin/trema:12:in `<top (required)>'
+	from /home/ensyuu2/.rvm/gems/ruby-2.2.5/bin/trema:23:in `load'
+	from /home/ensyuu2/.rvm/gems/ruby-2.2.5/bin/trema:23:in `<main>'
+	from /home/ensyuu2/.rvm/gems/ruby-2.2.5/bin/ruby_executable_hooks:15:in `eval'
+	from /home/ensyuu2/.rvm/gems/ruby-2.2.5/bin/ruby_executable_hooks:15:in `<main>'
+\end{lstlisting}
+
+エラーメッセージの原因を特定することができなかった．
+書き換えた ruby ファイルではない場所からエラーが発生しているため，環境構築が上手く出来ていない可能性がある． 
+
+\end{document}
