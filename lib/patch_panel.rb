@@ -1,40 +1,84 @@
-require 'English'
-
 # Software patch-panel.
 class PatchPanel < Trema::Controller
-  def start(args)
-    config_file = args[0] || 'patch_panel.conf'
-    @patch = parse(IO.read(config_file))
-    logger.info "PatchPanel started (config = #{config_file})."
+  def start(_args)
+    @patch = Hash.new { [] }
+		@mirror = Hash.new { [] }
+    logger.info 'PatchPanel started.'
   end
 
-  def switch_ready(datapath_id)
-    @patch.each do |port_a, port_b|
-      make_patch datapath_id, port_a, port_b
+  def switch_ready(dpid)
+    @patch[dpid].each do |port_a, port_b|
+      delete_flow_entries dpid, port_a, port_b
+      add_flow_entries dpid, port_a, port_b
     end
   end
 
+  def create_patch(dpid, port_a, port_b)
+    add_flow_entries dpid, port_a, port_b
+    @patch[dpid] += [[port_a, port_b].sort]
+  end
+
+  def delete_patch(dpid, port_a, port_b)
+    delete_flow_entries dpid, port_a, port_b
+    @patch[dpid] -= [[port_a, port_b].sort]
+  end
+
+  def create_mirror(dpid, port_monitor, port_mirror)
+		add_mirror_entries dpid, port_monitor, port_mirror
+		@mirror[dpid] += [[port_monitor, port_mirror]]
+  end
+
+	def delete_mirror(dpid, port_monitor, port_mirror)
+		if @mirror[dpid].include?([port_monitor, port_mirror]) then
+			delete_mirror_entry dpid, port_monitor, port_mirror
+			@mirror[dpid] -= [[port_monitor, port_mirror]]
+		end
+	end
+
   private
 
-  def parse(config)
-    config.each_line.map { |each| parse_line(each) }
+  def add_flow_entries(dpid, port_a, port_b)
+    send_flow_mod_add(dpid,
+                      match: Match.new(in_port: port_a),
+                      actions: SendOutPort.new(port_b))
+    send_flow_mod_add(dpid,
+                      match: Match.new(in_port: port_b),
+                      actions: SendOutPort.new(port_a))
   end
 
-  def parse_line(line)
-    fail "Invalid format: '#{line}'" unless /^(\d+)\s+(\d+)$/=~ line
-    [$LAST_MATCH_INFO[1].to_i, $LAST_MATCH_INFO[2].to_i]
+	def add_mirror_entries(dpid, port_monitor, port_mirror)
+		send_flow_mod_delete(dpid, match: Match.new(in_port: port_mirror))
+		for patch_tmp in @patch[dpid].each do
+			port_in = patch_tmp[0]
+			port_out = patch_tmp[1]
+			if port_in == port_monitor then
+				send_flow_mod_delete(dpid, match: Match.new(in_port: port_in))
+				send_flow_mod_add(dpid, 
+											match: Match.new(in_port: port_monitor),
+											actions: [
+												SendOutPort.new(port_out),
+												SendOutPort.new(port_mirror)
+											])
+			end		
+		end
+	end
+
+  def delete_flow_entries(dpid, port_a, port_b)
+    send_flow_mod_delete(dpid, match: Match.new(in_port: port_a))
+    send_flow_mod_delete(dpid, match: Match.new(in_port: port_b))
   end
 
-  def make_patch(datapath_id, port_a, port_b)
-    send_flow_mod_add(
-      datapath_id,
-      match: Match.new(in_port: port_a),
-      actions: SendOutPort.new(port_b)
-    )
-    send_flow_mod_add(
-      datapath_id,
-      match: Match.new(in_port: port_b),
-      actions: SendOutPort.new(port_a)
-    )
-  end
+	def delete_mirror_entry(dpid, port_monitor, port_mirror)
+		send_flow_mod_delete(dpid, match: Match.new(in_port: port_monitor))
+		for patch_tmp in @patch[dpid].each do
+			port_in = patch_tmp[0]
+			port_out = patch_tmp[1]
+			if port_in == port_monitor then
+				send_flow_mod_add(dpid,
+											match: Match.new(in_port: port_in),
+											actions: SendOutPort.new(port_out))
+			end
+		end
+	end
+
 end
